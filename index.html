@@ -200,6 +200,10 @@
                 <div id="aqiText">🟢 优</div>
                 <div id="aqiDesc" style="font-size:12px;margin-top:5px;">空气质量令人满意</div>
             </div>
+            <div id="visibilityBox" class="detail-item" style="margin-top:15px;display:none;">
+                <div class="label">能见度</div>
+                <div class="value" id="visibilityValue">-</div>
+            </div>
         </div>
         
         <div class="footer">数据来源：Open-Meteo</div>
@@ -262,7 +266,7 @@
 
         // 获取空气质量
         async function getAirQuality(lat, lon) {
-            const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi,pm2_5,pm10&timezone=Asia/Shanghai`;
+            const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi,pm2_5,pm10,visibility&timezone=Asia/Shanghai`;
             const res = await fetch(url);
             return res.json();
         }
@@ -322,6 +326,15 @@
                 aqiBox.className = "aqi-box " + info.class;
                 document.getElementById("aqiText").textContent = aqi+" "+info.text;
                 document.getElementById("aqiDesc").textContent = info.desc;
+
+                // 能见度
+                const visibilityBox = document.getElementById("visibilityBox");
+                const visibility = aqiData.visibility;
+                if (visibility != null) {
+                    const km = (visibility / 1000).toFixed(1);
+                    document.getElementById("visibilityValue").textContent = km + " km";
+                    visibilityBox.style.display = "block";
+                }
 
                 card.classList.add("show");
             } catch (e) {
