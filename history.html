@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WeatherCat 历史空气质量 🐱</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #fff;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 20px; font-size: 24px; }
+        h1 span { font-size: 32px; }
+        .card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .search-box {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+        }
+        input[type="text"], select, button {
+            padding: 10px 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            outline: none;
+        }
+        input[type="text"] { background: rgba(255,255,255,0.9); width: 160px; }
+        button { background: #4facfe; color: #fff; cursor: pointer; transition: background 0.3s; }
+        button:hover { background: #00f2fe; }
+        button:disabled { background: #666; cursor: not-allowed; }
+        .card h3 { margin-bottom: 15px; font-size: 16px; color: #aaa; }
+        .stats { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px; }
+        .stat {
+            background: rgba(255,255,255,0.1);
+            padding: 15px 20px;
+            border-radius: 12px;
+            text-align: center;
+            flex: 1;
+            min-width: 120px;
+        }
+        .stat .val { font-size: 28px; font-weight: bold; }
+        .stat .lbl { font-size: 12px; color: #aaa; margin-top: 5px; }
+        .loading, .error { text-align: center; padding: 30px; display: none; }
+        .loading { color: #aaa; }
+        .error { color: #ff6b6b; }
+        .chart-wrap { display: none; position: relative; height: 350px; }
+        .chart-wrap.show { display: block; }
+        .footer { text-align: center; font-size: 12px; color: #666; margin-top: 20px; }
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-left: 8px;
+        }
+        .bg-green { background: rgba(34,139,34,0.4); }
+        .bg-yellow { background: rgba(255,165,0,0.4); }
+        .bg-orange { background: rgba(255,140,0,0.4); }
+        .bg-red { background: rgba(220,20,60,0.4); }
+        .bg-purple { background: rgba(128,0,128,0.4); }
+        .yearly-stats { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 15px; }
+        .year-btn {
+            padding: 8px 14px;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.1);
+            color: #ccc;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+            font-size: 13px;
+        }
+        .year-btn:hover { background: rgba(255,255,255,0.2); }
+        .year-btn.active { background: rgba(79,172,254,0.3); border-color: #4facfe; color: #fff; }
+        .year-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .monthly-chart-wrap { display: none; position: relative; height: 300px; margin-top: 15px; }
+        .monthly-chart-wrap.show { display: block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1><span>🐱</span> 历史空气质量</h1>
+
+        <div class="card">
+            <div class="search-box">
+                <input type="text" id="locationInput" placeholder="城市，如：上海" onkeypress="if(event.key==='Enter')loadHistory()">
+                <select id="pastDays">
+                    <option value="30">近1个月</option>
+                    <option value="90">近3个月</option>
+                    <option value="180">近半年</option>
+                    <option value="365" selected>近1年</option>
+                    <option value="730">近2年</option>
+                    <option value="1095">近3年</option>
+                </select>
+                <button id="loadBtn" onclick="loadHistory()">加载数据</button>
+            </div>
+        </div>
+
+        <div id="yearPicker" class="card" style="display:none;">
+            <h3 id="yearPickerTitle">📅 选择年份查看年均</h3>
+            <div id="yearButtons" class="yearly-stats"></div>
+        </div>
+
+        <div id="monthlyCard" class="card" style="display:none;">
+            <h3 id="monthlyTitle">📈 月度趋势</h3>
+            <div style="margin-bottom:12px;">
+                <label><input type="checkbox" id="showAqi" checked onchange="toggleDataset()"> AQI</label>
+                <label style="margin-left:15px;"><input type="checkbox" id="showPm25" checked onchange="toggleDataset()"> PM2.5</label>
+            </div>
+            <div class="monthly-chart-wrap show">
+                <canvas id="monthlyChart"></canvas>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">加载中...</div>
+        <div class="error" id="error"></div>
+
+        <div class="card" id="statsCard" style="display:none;">
+            <h3 id="statsTitle">📊 统计摘要</h3>
+            <div class="stats">
+                <div class="stat">
+                    <div class="val" id="statAqiAvg">-</div>
+                    <div class="lbl">平均 AQI</div>
+                </div>
+                <div class="stat">
+                    <div class="val" id="statAqiMax">-</div>
+                    <div class="lbl">最大 AQI</div>
+                </div>
+                <div class="stat">
+                    <div class="val" id="statPm25Avg">-</div>
+                    <div class="lbl">平均 PM2.5 (μg/m³)</div>
+                </div>
+                <div class="stat">
+                    <div class="val" id="statPm25Max">-</div>
+                    <div class="lbl">最大 PM2.5</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" id="chartCard" style="display:none;">
+            <h3>📈 趋势图</h3>
+            <div style="margin-bottom:12px;">
+                <label><input type="checkbox" id="showAqi2" checked onchange="toggleDataset2()"> AQI</label>
+                <label style="margin-left:15px;"><input type="checkbox" id="showPm25_2" checked onchange="toggleDataset2()"> PM2.5</label>
+            </div>
+            <div class="chart-wrap show" id="chartWrap">
+                <canvas id="chart"></canvas>
+            </div>
+        </div>
+
+        <div class="footer">数据来源：Open-Meteo Air Quality API（最早可查2016年）</div>
+    </div>
+
+    <script>
+        let chart = null, monthlyChart = null;
+
+        const MONTHS = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+
+        function aqiBadge(aqi) {
+            if (aqi <= 50) return '🟢 优';
+            if (aqi <= 100) return '🟡 良';
+            if (aqi <= 150) return '🟠 轻度';
+            if (aqi <= 200) return '🔴 中度';
+            if (aqi <= 300) return '🟣 重度';
+            return '⚫ 严重';
+        }
+
+        function aqiBadgeClass(aqi) {
+            if (aqi <= 50) return 'bg-green';
+            if (aqi <= 100) return 'bg-yellow';
+            if (aqi <= 150) return 'bg-orange';
+            if (aqi <= 200) return 'bg-red';
+            if (aqi <= 300) return 'bg-purple';
+            return 'bg-purple';
+        }
+
+        async function geocode(location) {
+            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
+            const res = await fetch(url, { headers: { "User-Agent": "WeatherCatPage/1.0" } });
+            const data = await res.json();
+            if (!data.length) throw new Error('未找到该地址');
+            return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+        }
+
+        async function getHistory(lat, lon, pastDays) {
+            const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&past_days=${pastDays}&hourly=us_aqi,pm2_5&timezone=Asia/Shanghai`;
+            const res = await fetch(url);
+            const json = await res.json();
+            if (json.error) throw new Error(json.reason || '获取数据失败');
+            return json;
+        }
+
+        function stats(arr) {
+            const valid = arr.filter(v => v != null);
+            if (!valid.length) return { avg: '-', max: '-' };
+            return {
+                avg: Math.round(valid.reduce((a,b) => a+b, 0) / valid.length),
+                max: Math.max(...valid)
+            };
+        }
+
+        function fmtDateTime(dt) {
+            const d = new Date(dt);
+            return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}时`;
+        }
+
+        function fmtMonth(dt) {
+            const d = new Date(dt);
+            return `${d.getMonth()+1}月`;
+        }
+
+        function sampleHourly(times, aqi, pm25, step) {
+            const labels = [], ad = [], pd = [];
+            for (let i = 0; i < times.length; i += step) {
+                labels.push(times[i]);
+                ad.push(aqi[i]);
+                pd.push(pm25[i]);
+            }
+            return { labels, aqiData: ad, pm25Data: pd };
+        }
+
+        function calcMonthly(times, aqi, pm25) {
+            const monthlyAqi = {}, monthlyPm = {};
+            for (let i = 0; i < times.length; i++) {
+                const d = new Date(times[i]);
+                const key = `${d.getFullYear()}-${d.getMonth()}`;
+                if (!monthlyAqi[key]) { monthlyAqi[key] = []; monthlyPm[key] = []; }
+                if (aqi[i] != null) monthlyAqi[key].push(aqi[i]);
+                if (pm25[i] != null) monthlyPm[key].push(pm25[i]);
+            }
+            const years = [...new Set(Object.keys(monthlyAqi))].sort();
+            const labels = [], aqiData = [], pm25Data = [];
+            for (const y of years) {
+                const [year, month] = y.split('-');
+                const a = monthlyAqi[y];
+                const p = monthlyPm[y];
+                labels.push(`${year}年${parseInt(month)+1}月`);
+                aqiData.push(a.length ? Math.round(a.reduce((x,v)=>x+v,0)/a.length) : null);
+                pm25Data.push(p.length ? Math.round(p.reduce((x,v)=>x+v,0)/p.length) : null);
+            }
+            return { labels, aqiData, pm25Data };
+        }
+
+        function calcYearly(times, aqi, pm25) {
+            const yearly = {};
+            for (let i = 0; i < times.length; i++) {
+                const y = new Date(times[i]).getFullYear();
+                if (!yearly[y]) { yearly[y] = { aqi: [], pm25: [] }; }
+                if (aqi[i] != null) yearly[y].aqi.push(aqi[i]);
+                if (pm25[i] != null) yearly[y].pm25.push(pm25[i]);
+            }
+            return yearly;
+        }
+
+        async function loadHistory() {
+            const location = document.getElementById('locationInput').value.trim();
+            const pastDays = parseInt(document.getElementById('pastDays').value);
+            if (!location) { alert('请填写城市'); return; }
+
+            const btn = document.getElementById('loadBtn');
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const yearPicker = document.getElementById('yearPicker');
+            const statsCard = document.getElementById('statsCard');
+            const chartCard = document.getElementById('chartCard');
+            const monthlyCard = document.getElementById('monthlyCard');
+
+            btn.disabled = true;
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            yearPicker.style.display = 'none';
+            statsCard.style.display = 'none';
+            chartCard.style.display = 'none';
+            monthlyCard.style.display = 'none';
+
+            try {
+                const { lat, lon } = await geocode(location);
+                const data = await getHistory(lat, lon, pastDays);
+
+                const times = data.hourly.time;
+                const aqi = data.hourly.us_aqi;
+                const pm25 = data.hourly.pm2_5;
+
+                // 统计摘要
+                const sa = stats(aqi);
+                const sp = stats(pm25);
+                document.getElementById('statAqiAvg').innerHTML = sa.avg + (sa.avg !== '-' ? '<span class="badge ' + aqiBadgeClass(sa.avg) + '">' + aqiBadge(sa.avg) + '</span>' : '');
+                document.getElementById('statAqiMax').innerHTML = sa.max + (sa.max !== '-' ? '<span class="badge bg-red">' + aqiBadge(sa.max) + '</span>' : '');
+                document.getElementById('statPm25Avg').textContent = sp.avg;
+                document.getElementById('statPm25Max').textContent = sp.max;
+                document.getElementById('statsTitle').textContent = '📊 ' + location + ' 统计摘要';
+                statsCard.style.display = 'block';
+
+                // 趋势图（每3小时采样）
+                const { labels, aqiData, pm25Data } = sampleHourly(times, aqi, pm25, 3);
+                chartCard.style.display = 'block';
+                drawChart('chart', chart, labels, aqiData, pm25Data, 'showAqi2', 'showPm25_2', c => chart = c);
+
+                // 年份按钮
+                const yearly = calcYearly(times, aqi, pm25);
+                const years = Object.keys(yearly).sort().reverse();
+                const yearButtons = document.getElementById('yearButtons');
+                yearButtons.innerHTML = '';
+                years.forEach(y => {
+                    const b = document.createElement('button');
+                    b.className = 'year-btn';
+                    b.textContent = y + '年';
+                    b.dataset.year = y;
+                    b.onclick = () => showYear(y, yearly[y]);
+                    yearButtons.appendChild(b);
+                });
+                document.getElementById('yearPickerTitle').textContent = '📅 ' + location + ' 年均数据（可查 2016 年起）';
+                yearPicker.style.display = 'block';
+
+            } catch (e) {
+                error.textContent = e.message || '加载失败';
+                error.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                loading.style.display = 'none';
+            }
+        }
+
+        function showYear(year, data) {
+            document.querySelectorAll('.year-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.year-btn[data-year="${year}"]`).classList.add('active');
+
+            const monthlyAqi = Array(12).fill(null);
+            const monthlyPm = Array(12).fill(null);
+            // 这年的月均值
+            for (let m = 0; m < 12; m++) {
+                if (data.aqi[m] && data.aqi[m].length) {
+                    monthlyAqi[m] = Math.round(data.aqi[m].reduce((a,b)=>a+b,0)/data.aqi[m].length);
+                }
+                if (data.pm25[m] && data.pm25[m].length) {
+                    monthlyPm[m] = Math.round(data.pm25[m].reduce((a,b)=>a+b,0)/data.pm25[m].length);
+                }
+            }
+            const labels = MONTHS;
+            const aqiData = monthlyAqi;
+            const pm25Data = monthlyPm;
+
+            document.getElementById('monthlyCard').style.display = 'block';
+            document.getElementById('monthlyTitle').textContent = `📈 ${year}年月度趋势`;
+            drawChart('monthlyChart', monthlyChart, labels, aqiData, pm25Data, 'showAqi', 'showPm25', c => monthlyChart = c);
+        }
+
+        function drawChart(canvasId, chartRef, labels, aqiData, pm25Data, aqiCheckId, pm25CheckId, setter) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            if (chartRef) chartRef.destroy();
+            const c = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'AQI',
+                            data: aqiData,
+                            borderColor: 'rgba(79,172,254,1)',
+                            backgroundColor: 'rgba(79,172,254,0.6)',
+                            tension: 0.3,
+                            fill: false,
+                            order: 2,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'PM2.5 (μg/m³)',
+                            data: pm25Data,
+                            borderColor: 'rgba(255,99,132,1)',
+                            backgroundColor: 'rgba(255,99,132,0.6)',
+                            tension: 0.3,
+                            fill: false,
+                            order: 1,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { labels: { color: '#ccc' } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    if (ctx.dataset.label === 'AQI') {
+                                        return ctx.raw != null ? `AQI: ${ctx.raw} ${aqiBadge(ctx.raw)}` : '';
+                                    }
+                                    return ctx.raw != null ? `PM2.5: ${ctx.raw} μg/m³` : '';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#888' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                        y: {
+                            type: 'linear', position: 'left',
+                            title: { display: true, text: 'AQI', color: 'rgba(79,172,254,1)' },
+                            ticks: { color: '#aaa' },
+                            grid: { color: 'rgba(255,255,255,0.05)' }
+                        },
+                        y1: {
+                            type: 'linear', position: 'right',
+                            title: { display: true, text: 'PM2.5 (μg/m³)', color: 'rgba(255,99,132,1)' },
+                            ticks: { color: '#aaa' },
+                            grid: { drawOnChartArea: false }
+                        }
+                    }
+                }
+            });
+            setter(c);
+        }
+
+        function toggleDataset() {
+            if (!monthlyChart) return;
+            monthlyChart.data.datasets[0].hidden = !document.getElementById('showAqi').checked;
+            monthlyChart.data.datasets[1].hidden = !document.getElementById('showPm25').checked;
+            monthlyChart.update();
+        }
+
+        function toggleDataset2() {
+            if (!chart) return;
+            chart.data.datasets[0].hidden = !document.getElementById('showAqi2').checked;
+            chart.data.datasets[1].hidden = !document.getElementById('showPm25_2').checked;
+            chart.update();
+        }
+
+        document.getElementById('locationInput').value = '上海';
+    </script>
+</body>
+</html>
