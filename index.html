@@ -254,7 +254,7 @@
             const res = await fetch(url, { headers: { "User-Agent": "WeatherCatPage/1.0" } });
             const data = await res.json();
             if (!data.length) throw new Error("未找到该地址");
-            return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+            return { showName:data[0].display_name, lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
         }
 
         // 获取天气（包含能见度）
@@ -295,7 +295,7 @@
 
             try {
                 // 1. 地理编码
-                const { lat, lon } = await geocode(location);
+                const { showName, lat, lon } = await geocode(location);
 
                 // 2. 并行请求天气和空气质量
                 const [weather, air] = await Promise.all([
@@ -307,7 +307,7 @@
                 const current = weather.current;
                 const aqiData = air.current;
 
-                document.getElementById("locationName").textContent = location;
+                document.getElementById("locationName").textContent = showName;//location;
                 document.getElementById("weatherDesc").textContent = weatherCodes[current.weather_code] || "❓ 未知";
                 document.getElementById("mainTemp").textContent = `${Math.round(current.temperature_2m)}°C`;
                 document.getElementById("feelsLike").textContent = `${Math.round(current.apparent_temperature)}°C`;
